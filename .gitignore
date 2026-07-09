@@ -1,0 +1,7 @@
+# local build artifacts
+/build/
+*.pyc
+__pycache__/
+# never commit real secrets / local configs
+wmbusmeters.conf
+!config/wmbusmeters.conf.example

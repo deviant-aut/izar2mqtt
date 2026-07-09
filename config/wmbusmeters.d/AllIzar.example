@@ -1,0 +1,8 @@
+# Wildcard meter: matches every Diehl IZAR (PRIOS) meter in range.
+# IZAR uses LFSR obfuscation, NOT AES -> no key needed (key=NOKEY).
+# Each meter's real id is decoded per-telegram; the bridge creates one HA
+# device per id automatically. Rename this file as you like.
+name=AllIzar
+type=izar
+id=*
+key=NOKEY

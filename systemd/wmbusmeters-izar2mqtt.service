@@ -1,0 +1,23 @@
+[Unit]
+Description=izar2mqtt - Diehl IZAR water meters (RTL-SDR) -> Home Assistant via MQTT
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# MQTT broker credentials (override for your setup):
+Environment=MQTT_HOST=your-broker.lan
+Environment=MQTT_PORT=1883
+Environment=MQTT_USER=mqtt
+Environment=MQTT_PASS=changeme
+# Optional: give specific meters a name suffix, e.g. mark your own meter:
+#Environment=WMBUS_LABELS={"12345678":"home"}
+ExecStart=/bin/sh -c '/usr/local/bin/wmbusmeters --useconfig=/etc 2>/dev/null | /usr/local/bin/wmbus-ha-bridge.py'
+Restart=always
+RestartSec=10
+# rtl_sdr needs USB access; root is simplest. Alternatively use a user in the
+# 'plugdev' group with the appropriate udev rule for the RTL-SDR.
+User=root
+
+[Install]
+WantedBy=multi-user.target

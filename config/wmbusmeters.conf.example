@@ -1,0 +1,16 @@
+loglevel=normal
+# --- RTL-SDR device -----------------------------------------------------------
+# Readings are emitted as JSON on STDOUT and piped into wmbus-ha-bridge.py,
+# so DO NOT set meterfiles/logfile here (they would steal stdout).
+#
+# The CMD(...) form lets you pin gain and use a self-built rtl_wmbus.
+# 868.95 MHz = IZAR "R3" mode (~8 s interval). 868.30 MHz = "R4" (~15 min).
+#
+# TUNER TIP: on weak tuners (e.g. Fitipower FC0012, max gain ~19 dB) run
+# rtl_wmbus WITHOUT -a (accurate atan demod) and WITH -o (DC-offset removal).
+# That took decode rate from ~0% to ~50% here. Strong R820T2 tuners are fine
+# either way and can use higher gain (e.g. -g 40).
+device=rtlwmbus:868.95M:CMD(rtl_sdr -f 868.95M -s 1600000 -g 19.2 - 2>/dev/null | /usr/local/bin/rtl_wmbus -o 2>/dev/null)
+donotprobe=all
+format=json
+logtelegrams=false
