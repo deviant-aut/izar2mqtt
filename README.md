@@ -61,6 +61,22 @@ is computed by the bridge as `Δlitres / Δtime` between two telegrams:
 If you want it smoother, add a Home Assistant `filter` sensor (moving average)
 on top.
 
+### Plausibility filter
+
+The wM-Bus CRC16 and the PRIOS check byte are weak enough that, on a noisy
+receiver, a corrupted telegram occasionally slips through (seen here: once in
+~2 million frames, `130.364` → `1063200.312` m³). With `total_increasing` that
+single frame would book a million m³ into the HA water statistics. So the
+bridge drops a telegram if `total_m3`
+
+- is **lower** than the last accepted value, or
+- rose faster than `WMBUS_MAX_FLOW_M3H` (default 5 m³/h) allows for the time
+  since the last accepted reading — rare telegrams therefore still pass.
+
+A rejected value is accepted anyway if the next telegram repeats it (or is
+plausible relative to it), which covers meter swaps/resets and the first
+reading after a restart. Rejects are logged as `[bridge] <id>: REJECT ...`.
+
 ## Hardware
 
 - Any RTL2832U RTL-SDR dongle. A meter transmits on **868.95 MHz** (IZAR "R3",
@@ -107,6 +123,7 @@ Set in the systemd unit:
 | `MQTT_USER` / `MQTT_PASS` | `mqtt` / `changeme` | broker credentials |
 | `HA_DISCOVERY_PREFIX` | `homeassistant` | HA discovery prefix |
 | `WMBUS_LABELS` | `{}` | JSON map `id → name suffix`, e.g. `{"12345678":"home"}` → device *watermeter 12345678 (home)* |
+| `WMBUS_MAX_FLOW_M3H` | `5` | plausibility limit for `total_m3`, see *Plausibility filter* |
 
 ## MQTT topics
 

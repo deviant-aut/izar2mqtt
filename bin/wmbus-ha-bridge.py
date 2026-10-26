@@ -7,6 +7,14 @@ Config via environment variables:
   MQTT_HOST/PORT/USER/PASS   MQTT broker (default localhost:1883)
   WMBUS_LABELS               optional JSON map id -> name suffix,
                              e.g. '{"12345678":"home"}' -> "watermeter 12345678 (home)"
+  WMBUS_MAX_FLOW_M3H         plausibility limit for total_m3 (default 5 m³/h)
+
+Plausibility filter: a telegram whose total_m3 is lower than the last accepted
+value, or rose faster than WMBUS_MAX_FLOW_M3H allows for the elapsed time, is
+dropped (CRC16 + PRIOS check byte occasionally let a corrupted frame through).
+The same implausible value received twice in a row, or followed by a reading
+that is plausible relative to it, is accepted (meter swap, reset, or the first
+reading after a restart).
 """
 import sys, json, subprocess, os, time
 from datetime import datetime, timezone
@@ -35,6 +43,12 @@ SENSORS = [
 # Minimum dt (s) between two readings used for flow calculation. Filters out
 # duplicate telegrams (same frame received twice within ~0s).
 FLOW_MIN_DT = 2.0
+
+# Plausibility filter for total_m3, see module docstring. The allowed increase
+# scales with the time since the last accepted reading, so rare telegrams still
+# pass; SLACK covers the 1 L resolution.
+MAX_FLOW_M3H = float(os.environ.get("WMBUS_MAX_FLOW_M3H", "5"))
+SLACK_M3 = 0.005
 
 
 def pub(topic, payload, retain=True):
@@ -89,10 +103,20 @@ def publish_discovery(mid):
     print(f"[bridge] discovery published: {mid} -> {dev_name}", flush=True)
 
 
+def plausible(ref, total, t):
+    """ref = (total_m3, epoch_s) of last accepted reading, or None."""
+    if ref is None:
+        return False
+    dv = total - ref[0]
+    return dv >= 0 and dv <= MAX_FLOW_M3H * max(t - ref[1], 0) / 3600.0 + SLACK_M3
+
+
 def main():
     seen = set()
     last_reading = {}   # mid -> (total_m3, epoch_s) of last reading used for flow
     last_flow = {}      # mid -> last computed flow (L/min), always re-sent
+    accepted = {}       # mid -> (total_m3, epoch_s) of last accepted reading
+    pending = {}        # mid -> (total_m3, epoch_s) implausible, awaiting confirmation
     for line in sys.stdin:
         line = line.strip()
         if not line or not line.startswith("{"):
@@ -105,9 +129,27 @@ def main():
         if not mid or d.get("meter") != "izar":
             continue
 
-        # Derive flow rate from meter-reading delta (1 L resolution).
         cur_total = d.get("total_m3")
         cur_t = parse_ts(d.get("timestamp", ""))
+        if cur_total is not None:
+            if plausible(accepted.get(mid), cur_total, cur_t):
+                pending.pop(mid, None)
+            elif mid in pending and (pending[mid][0] == cur_total
+                                     or plausible(pending[mid], cur_total, cur_t)):
+                pending.pop(mid, None)
+                if mid in accepted:
+                    print(f"[bridge] {mid}: total_m3={cur_total} confirmed, "
+                          f"accepting (was {accepted[mid][0]})", flush=True)
+                last_reading.pop(mid, None)   # don't derive flow across the jump
+            else:
+                pending[mid] = (cur_total, cur_t)
+                if mid in accepted:   # first reading after start: quietly wait
+                    print(f"[bridge] {mid}: REJECT total_m3={cur_total} "
+                          f"(last accepted {accepted[mid][0]})", flush=True)
+                continue
+            accepted[mid] = (cur_total, cur_t)
+
+        # Derive flow rate from meter-reading delta (1 L resolution).
         if cur_total is not None:
             prev = last_reading.get(mid)
             if prev is not None:
